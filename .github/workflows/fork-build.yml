@@ -28,6 +28,9 @@ jobs:
 
       - name: Set up Android SDK and NDK
         uses: android-actions/setup-android@v3
+        with:
+          # 默认会装已下架的 'tools' 包导致失败；其余 SDK 组件由 AGP 按需下载
+          packages: 'platform-tools'
 
       - name: Restore fixed debug keystore
         if: env.DEBUG_KEYSTORE != ''
