@@ -157,9 +157,17 @@ fun rememberPiliPlayerMenuSession(
     }
 
     DisposableEffect(player) {
-        fun bind(sessionId: Int) {
-            gainEffect?.release()
+        // 系统音效（如 ColorOS 杜比/全景声）抢占控制权时，回调可能在 release() 之后才派发；
+        // 先摘掉监听再释放，避免回调里访问已释放的 AudioEffect 导致主线程崩溃
+        fun releaseGainEffect() {
+            gainEffect?.let { effect ->
+                runCatching { effect.setControlStatusListener(null) }
+                effect.release()
+            }
             gainEffect = null
+        }
+        fun bind(sessionId: Int) {
+            releaseGainEffect()
             volumeAvailable = false
             volumeFailure = "音频会话尚未就绪"
             if (sessionId <= 0) return
@@ -170,7 +178,8 @@ fun rememberPiliPlayerMenuSession(
                         effect.enabled = true
                         check(effect.enabled && effect.hasControl()) { "音频增强效果不可用" }
                         effect.setControlStatusListener { _, granted ->
-                            volumeAvailable = granted && effect.enabled
+                            // 已释放的 effect 调用 getEnabled() 会抛 IllegalStateException
+                            volumeAvailable = granted && runCatching { effect.enabled }.getOrDefault(false)
                             volumeFailure = if (volumeAvailable) null else "播放器音频增强控制权已被其他音效占用"
                         }
                     } catch (error: RuntimeException) {
@@ -194,8 +203,7 @@ fun rememberPiliPlayerMenuSession(
         bind(player?.audioSessionId ?: 0)
         onDispose {
             player?.removeListener(listener)
-            gainEffect?.release()
-            gainEffect = null
+            releaseGainEffect()
         }
     }
     LaunchedEffect(gainEffect, amplification) {

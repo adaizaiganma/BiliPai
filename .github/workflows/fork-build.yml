@@ -1,0 +1,54 @@
+# 自用 fork 构建：不依赖 FCM，产出 dev 包（包名 .dev，可与官方版共存）
+# 签名使用仓库 secret DEBUG_KEYSTORE（base64），保证每次构建签名一致、可覆盖安装
+name: Fork Build
+
+on:
+  push:
+    branches: [custom]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      NATIVE_TARGET: "arm64-v8a"
+      DEBUG_KEYSTORE: ${{ secrets.DEBUG_KEYSTORE }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Set up Android SDK and NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Restore fixed debug keystore
+        if: env.DEBUG_KEYSTORE != ''
+        run: |
+          mkdir -p ~/.android
+          echo "$DEBUG_KEYSTORE" | base64 -d > ~/.android/debug.keystore
+
+      - name: Build dev APK
+        run: |
+          chmod +x gradlew
+          ./gradlew \
+            "-Pbili.build.commitSha=${{ github.sha }}" \
+            "-Pbili.build.gitRef=${{ github.ref }}" \
+            "-Pbili.build.workflowRunId=${{ github.run_id }}" \
+            "-Pbili.build.workflowRunUrl=https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            assembleDev
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: BiliPai-dev-${{ github.sha }}
+          path: app/build/outputs/bilipai/dev/BiliPai-*.apk
+          if-no-files-found: error
+          retention-days: 30
